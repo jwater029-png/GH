@@ -1,17 +1,17 @@
 # GH
 
-This is the live workspace for the `GH` product.
+这是 `GH` 产品的实时工作区。
 
-## Folder Layout
+## 目录结构
 
-- `01_docs`: expandable docs folders for rules, plan, ideas, decisions
-- `02_frontend`: frontend application code
-- `03_backend`: backend services and APIs
-- `04_database`: schema, migrations, seeds, backups
-- `05_infra`: deployment, proxy, process, environment templates
-- `06_scripts`: utility and maintenance scripts
+- `01_docs`：可扩展的文档目录，包含规则、计划、想法、决策
+- `02_frontend`：前端应用代码
+- `03_backend`：后端服务与 API
+- `04_database`：数据库表结构、迁移、种子数据、备份
+- `05_infra`：部署、代理、进程、环境模板
+- `06_scripts`：工具与维护脚本
 
-## Read Order
+## 阅读顺序
 
 1. `D:\Projects\_SYSTEM\01_CLAUDE.md`
 2. `D:\Projects\_SYSTEM\02_MEMORY.md`
