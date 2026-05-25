@@ -1,0 +1,26 @@
+# OS
+Thumbs.db
+Desktop.ini
+
+# Environment
+.env
+.env.*
+
+# Logs
+*.log
+logs/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+.next/
+.nuxt/
+coverage/
+
+# Runtime data
+tmp/
+temp/
+.cache/
