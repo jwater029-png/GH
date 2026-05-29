@@ -11,17 +11,6 @@
 - `05_infra`：部署、代理、进程、环境模板
 - `06_scripts`：工具与维护脚本
 
-## 阅读顺序
+## 文档
 
-1. `D:\Projects\_SYSTEM\01_CLAUDE.md`
-2. `D:\Projects\_SYSTEM\02_MEMORY.md`
-3. `D:\Projects\GH\01_docs\02_PROJECT_RULES\README.md`
-4. `D:\Projects\GH\01_docs\03_WORKING_PLAN\README.md`
-5. `D:\Projects\GH\01_docs\04_IDEA_INBOX\README.md`
-6. `D:\Projects\GH\01_docs\05_DECISIONS\README.md`
-
-## 启动方式
-
-- Claude Code：`D:\Projects\GH\start-claude.ps1` 或 `D:\Projects\GH\start-claude.bat`
-- Codex：`D:\Projects\GH\start-codex.ps1` 或 `D:\Projects\GH\start-codex.bat`
-- 这些启动脚本会先切到 `D:\Projects\GH`，再启动对应工具。
+- `01_docs` 放项目规则、计划、想法和决策。

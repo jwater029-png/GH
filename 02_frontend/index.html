@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>星网 · 偏好编辑器</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">星网 <span class="sub">个人偏好</span></div>
+    <button id="new-btn" class="btn-primary">+ 新建一条</button>
+  </header>
+
+  <main class="layout">
+    <!-- 左:列表 -->
+    <aside class="list-pane">
+      <div class="list-head">
+        <span id="count">0 条</span>
+      </div>
+      <ul id="list" class="list"></ul>
+      <p id="empty" class="empty">还没有偏好。点右上角"新建一条"开始。</p>
+    </aside>
+
+    <!-- 右:编辑表单 -->
+    <section class="edit-pane">
+      <div id="placeholder" class="placeholder">
+        左边选一条来编辑,或新建一条。
+      </div>
+
+      <form id="form" class="form hidden">
+        <label class="field">
+          <span class="label">标题</span>
+          <input type="text" id="f-title" placeholder="比如:用 pytest 写测试" required>
+        </label>
+
+        <div class="row">
+          <label class="field">
+            <span class="label">类型</span>
+            <select id="f-type">
+              <option value="preference">偏好 preference</option>
+              <option value="habit">习惯 habit</option>
+              <option value="decision-style">决策风格 decision-style</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span class="label">优先级</span>
+            <select id="f-priority">
+              <option value="high">高 high</option>
+              <option value="medium" selected>中 medium</option>
+              <option value="low">低 low</option>
+            </select>
+          </label>
+        </div>
+
+        <label class="field">
+          <span class="label">适用的 AI <span class="hint">(不选 = 全部适用)</span></span>
+          <div id="f-applies" class="checks">
+            <label><input type="checkbox" value="claude-code"> Claude Code</label>
+            <label><input type="checkbox" value="cursor"> Cursor</label>
+            <label><input type="checkbox" value="codex"> Codex</label>
+          </div>
+        </label>
+
+        <label class="field">
+          <span class="label">标签 <span class="hint">(逗号分隔)</span></span>
+          <input type="text" id="f-tags" placeholder="test, python, pytest">
+        </label>
+
+        <label class="field">
+          <span class="label">内容 <span class="hint">(用大白话写,给 AI 看的)</span></span>
+          <textarea id="f-body" rows="8" placeholder="我习惯用 pytest 写测试,不用 unittest。"></textarea>
+        </label>
+
+        <div class="actions">
+          <button type="submit" class="btn-primary">保存</button>
+          <button type="button" id="export-btn" class="btn">导出 .md</button>
+          <button type="button" id="delete-btn" class="btn-danger hidden">删除</button>
+          <span id="status" class="status"></span>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <script src="starnet-format.js"></script>
+  <script src="storage.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
