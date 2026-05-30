@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"星网主窗口权限:核心窗口能力 + 自定义存储命令(命令本身在 invoke_handler 注册,无需额外 ACL)","local":true,"windows":["main"],"permissions":["core:default"]}}

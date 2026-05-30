@@ -1,0 +1,13 @@
+{
+  "name": "starnet",
+  "version": "0.1.0",
+  "private": true,
+  "description": "星网 · 个人偏好本地大脑(Tauri 桌面壳)",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

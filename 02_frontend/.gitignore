@@ -1,0 +1,15 @@
+# Rust / Tauri 编译产物(3GB+,绝不进 git)
+src-tauri/target/
+
+# Node 依赖(npm install 可重建)
+node_modules/
+
+# 前端产物目录(由 sync-dist.js 在 build/dev 前自动生成,不是源文件)
+dist/
+
+# 图标源图(由 tauri icon 重新生成)
+app-icon.png
+
+# 系统杂项
+.DS_Store
+Thumbs.db

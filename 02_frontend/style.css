@@ -97,5 +97,6 @@ button { cursor: pointer; border-radius: var(--radius); font: inherit; padding: 
 .btn-danger { background: transparent; color: var(--danger); border-color: transparent; margin-left: auto; }
 .btn-danger:hover { background: #fbeded; }
 .status { color: var(--muted); font-size: 13px; }
+.status.err { color: var(--danger); font-weight: 600; }
 
 .hidden { display: none !important; }

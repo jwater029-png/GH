@@ -1,23 +1,61 @@
 // storage.js
-// 存储层。这一版用浏览器 localStorage(网页版);
-// 套 Tauri 时只换这个文件的实现为真正写进 ~/.starnet/personal/,
-// 界面(app.js)和格式(starnet-format.js)零改动 —— 这是"先网页后桌面不返工"的关键。
+// 存储层(双模式)。
+//   · 在 Tauri 桌面壳里  -> 调 Rust 命令,真正读写 ~/.starnet/personal/*.md
+//   · 在普通浏览器里     -> 退回 localStorage(网页版照样能跑、能验证逻辑)
 //
-// 对外接口(Tauri 版也必须实现这同一套,签名不变):
-//   Storage.list()            -> [{ id, type, title, ...record, body }]   全部偏好
-//   Storage.save(record, body)-> void                                     新建或覆盖
-//   Storage.remove(id)        -> void                                     删除(走 trash)
-//   Storage.get(id)           -> { record, body } | null
+// 关键设计:接口签名对 app.js 保持不变,但全部返回 Promise(因为 Tauri 命令是异步的)。
+// app.js 里调用处统一用 await。格式解析仍全交给 starnet-format.js,这层只搬运整段 markdown 文本。
 //
-// 数据在 localStorage 里按 "starnet:item:<id>" 存整段 markdown 文本,
-// 和真实文件系统的"一条一个 .md"一一对应,换 Tauri 时语义不变。
+// 对外接口:
+//   Storage.list()             -> Promise<[{ id, type, title, ...record, body }]>
+//   Storage.get(id)            -> Promise<{ record, body } | null>
+//   Storage.save(record, body) -> Promise<void>
+//   Storage.remove(id)         -> Promise<void>
+//   Storage.dataDir()          -> Promise<string|null>  (Tauri 下返回数据目录,网页版返回 null)
 
 const ITEM_PREFIX = 'starnet:item:';
 const TRASH_PREFIX = 'starnet:trash:';
 
-const Storage = {
-  // 列出全部:解析每段 markdown,返回 record + body 合并的对象
-  list() {
+// 是否跑在 Tauri 里(withGlobalTauri 注入了 window.__TAURI__)
+const IN_TAURI = typeof window !== 'undefined' && !!window.__TAURI__;
+const invoke = IN_TAURI ? window.__TAURI__.core.invoke : null;
+
+// ---------- Tauri 真实文件实现 ----------
+const TauriStorage = {
+  async list() {
+    const items = await invoke('list_items'); // [{ id, text }]
+    const out = [];
+    for (const it of items) {
+      try {
+        const { record, body } = window.StarnetFormat.parseMarkdown(it.text);
+        out.push({ ...record, body });
+      } catch (e) {
+        console.warn('跳过解析失败的条目', it.id, e.message);
+      }
+    }
+    out.sort((a, b) => String(b.updated).localeCompare(String(a.updated)));
+    return out;
+  },
+  async get(id) {
+    const text = await invoke('get_item', { id });
+    if (text == null) return null;
+    return window.StarnetFormat.parseMarkdown(text);
+  },
+  async save(record, body) {
+    const md = window.StarnetFormat.buildMarkdown(record, body);
+    await invoke('save_item', { id: record.id, text: md });
+  },
+  async remove(id) {
+    await invoke('remove_item', { id });
+  },
+  async dataDir() {
+    return invoke('data_dir');
+  },
+};
+
+// ---------- localStorage 实现(网页版回退)----------
+const WebStorage = {
+  async list() {
     const out = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
@@ -27,35 +65,35 @@ const Storage = {
         const { record, body } = window.StarnetFormat.parseMarkdown(text);
         out.push({ ...record, body });
       } catch (e) {
-        // 宪法第十一节:解析失败提示而不是崩 —— 这里跳过坏数据,不让整个列表挂掉
         console.warn('跳过解析失败的条目', key, e.message);
       }
     }
-    // 按 updated 倒序,最近改的在上面
     out.sort((a, b) => String(b.updated).localeCompare(String(a.updated)));
     return out;
   },
-
-  // 取单条
-  get(id) {
+  async get(id) {
     const text = localStorage.getItem(ITEM_PREFIX + id);
     if (!text) return null;
     return window.StarnetFormat.parseMarkdown(text);
   },
-
-  // 新建或覆盖:record + body -> markdown 文本 -> localStorage
-  save(record, body) {
+  async save(record, body) {
     const md = window.StarnetFormat.buildMarkdown(record, body);
     localStorage.setItem(ITEM_PREFIX + record.id, md);
   },
-
-  // 删除走 trash(宪法第十一节:不直接删)
-  remove(id) {
+  async remove(id) {
     const text = localStorage.getItem(ITEM_PREFIX + id);
     if (text == null) return;
     localStorage.setItem(TRASH_PREFIX + id, text);
     localStorage.removeItem(ITEM_PREFIX + id);
   },
+  async dataDir() {
+    return null;
+  },
 };
 
-if (typeof window !== 'undefined') window.Storage = Storage;
+const Storage = IN_TAURI ? TauriStorage : WebStorage;
+
+if (typeof window !== 'undefined') {
+  window.Storage = Storage;
+  window.STARNET_IN_TAURI = IN_TAURI;
+}

@@ -1,5 +1,7 @@
 // app.js — 界面逻辑:列表、表单、增删改、导出。
 // 依赖 window.StarnetFormat(格式)和 window.Storage(存储)。
+// 注:Storage 已改为异步(Tauri 命令是异步的),所有 Storage.* 调用都用 await,
+//     相关函数都改成 async。这是套 Tauri 壳唯一需要的界面侧改动(逻辑不变)。
 
 const F = window.StarnetFormat;
 
@@ -26,8 +28,8 @@ const el = {
 };
 
 // ---- 渲染左侧列表 ----
-function renderList() {
-  const items = window.Storage.list();
+async function renderList() {
+  const items = await window.Storage.list();
   el.count.textContent = items.length + ' 条';
   el.empty.classList.toggle('hidden', items.length > 0);
   el.list.innerHTML = '';
@@ -66,7 +68,7 @@ function showForm(show) {
 }
 
 // ---- 新建模式:清空表单 ----
-function newItem() {
+async function newItem() {
   currentId = null;
   el.title.value = '';
   el.type.value = 'preference';
@@ -77,13 +79,13 @@ function newItem() {
   el.deleteBtn.classList.add('hidden');
   el.status.textContent = '';
   showForm(true);
-  renderList();
+  await renderList();
   el.title.focus();
 }
 
 // ---- 打开已有条目 ----
-function openItem(id) {
-  const got = window.Storage.get(id);
+async function openItem(id) {
+  const got = await window.Storage.get(id);
   if (!got) return;
   const { record, body } = got;
   currentId = id;
@@ -96,11 +98,11 @@ function openItem(id) {
   el.deleteBtn.classList.remove('hidden');
   el.status.textContent = '';
   showForm(true);
-  renderList();
+  await renderList();
 }
 
 // ---- 保存(新建或更新)----
-function save(e) {
+async function save(e) {
   e.preventDefault();
   const title = el.title.value.trim();
   if (!title) { flash('标题不能为空'); return; }
@@ -114,47 +116,51 @@ function save(e) {
   };
   const body = el.body.value;
 
-  let record;
-  if (currentId == null) {
-    // 新建
-    const created = F.createRecord({
-      type: fields.type, title, body,
-      priority: fields.priority, appliesTo: fields['applies-to'], tags: fields.tags,
-    });
-    record = created.record;
-  } else {
-    // 更新已有
-    const old = window.Storage.get(currentId).record;
-    const updated = F.updateRecord(old, { fields, body });
-    record = updated.record;
-    // 改 title 会让 id 变 → 旧文件名换了,删掉旧的(localStorage 版按 id 存)
-    if (record.id !== currentId) window.Storage.remove(currentId);
-  }
+  try {
+    let record;
+    if (currentId == null) {
+      // 新建
+      const created = F.createRecord({
+        type: fields.type, title, body,
+        priority: fields.priority, appliesTo: fields['applies-to'], tags: fields.tags,
+      });
+      record = created.record;
+    } else {
+      // 更新已有
+      const old = (await window.Storage.get(currentId)).record;
+      const updated = F.updateRecord(old, { fields, body });
+      record = updated.record;
+      // 改 title 会让 id 变 → 旧文件名换了,删掉旧的
+      if (record.id !== currentId) await window.Storage.remove(currentId);
+    }
 
-  window.Storage.save(record, body);
-  currentId = record.id;
-  el.deleteBtn.classList.remove('hidden');
-  renderList();
-  flash('已保存 ✓');
+    await window.Storage.save(record, body);
+    currentId = record.id;
+    el.deleteBtn.classList.remove('hidden');
+    await renderList();
+    flash('已保存 ✓');
+  } catch (err) {
+    flashError('保存失败', err);
+  }
 }
 
 // ---- 删除 ----
-function del() {
+async function del() {
   if (currentId == null) return;
   if (!confirm('删除这条偏好?(会进 trash,不是彻底删)')) return;
-  window.Storage.remove(currentId);
+  await window.Storage.remove(currentId);
   currentId = null;
   showForm(false);
-  renderList();
+  await renderList();
 }
 
 // ---- 导出当前条目为 .md 文件 ----
-function exportMd() {
+async function exportMd() {
   const title = el.title.value.trim();
   if (!title) { flash('先填标题再导出'); return; }
   let record, body = el.body.value;
   if (currentId != null) {
-    const old = window.Storage.get(currentId).record;
+    const old = (await window.Storage.get(currentId)).record;
     record = F.updateRecord(old, {
       fields: {
         title, type: el.type.value, priority: el.priority.value,
@@ -182,8 +188,29 @@ function exportMd() {
 let flashTimer = null;
 function flash(msg) {
   el.status.textContent = msg;
+  el.status.classList.remove('err');
   clearTimeout(flashTimer);
   flashTimer = setTimeout(() => { el.status.textContent = ''; }, 2500);
+}
+
+// 出错时把报错红字钉在状态栏(不自动消失),方便把真实原因念出来排查
+function flashError(prefix, e) {
+  const msg = (e && (e.message || e.toString())) || String(e);
+  el.status.textContent = prefix + ':' + msg;
+  el.status.classList.add('err');
+  clearTimeout(flashTimer);
+  console.error(prefix, e);
+}
+
+// 兜底:任何没被捕获的异步报错也显示出来
+window.addEventListener('unhandledrejection', (ev) => {
+  flashError('未捕获错误', ev.reason);
+});
+
+// 启动自检:把当前运行环境亮出来(Tauri 还是网页),一眼看出走了哪条存储分支
+function showEnv() {
+  const where = window.STARNET_IN_TAURI ? 'Tauri 桌面(写真实文件)' : '网页(localStorage)';
+  el.status.textContent = '运行环境:' + where;
 }
 
 // ---- 绑定事件 + 启动 ----
@@ -192,4 +219,6 @@ el.form.addEventListener('submit', save);
 el.deleteBtn.addEventListener('click', del);
 el.exportBtn.addEventListener('click', exportMd);
 
-renderList();
+// 启动:先亮环境,再渲染列表(渲染失败也把错误显示出来)
+showEnv();
+renderList().catch((err) => flashError('启动读取失败', err));
