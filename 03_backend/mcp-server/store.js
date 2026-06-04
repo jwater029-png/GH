@@ -82,9 +82,84 @@ export function loadAll() {
   return out;
 }
 
-// recall:按关键词召回最相关的几条。
-// 命中权重:标题 > 标签 > 场景 > 正文;同分再按优先级。
-// 这是"按需查"的实现,不含三层打分(那是 1-③)。
+// ──────────────────────────────────────────────────────────────
+// 三层叠加打分(1-③ 护城河①核心)
+// 对齐数据格式宪法的真实字段:applies-to=哪些agent、context=场景标签、tags=自由标签。
+// (产品决策清单把 applies-to 当"项目路径"是旧语义,已被宪法 v3.0 改写,这里按宪法来。)
+//
+// 三层:
+//   1. 全局保底 —— priority 基础分,任何语境都给,保证高优先级偏好不被挤掉
+//   2. 语境匹配 —— 当前在干啥(项目语言/文件类型/任务关键词)命中偏好 context → 重加分
+//                  "项目路径"和"文件类型"在真实数据里都落到 context/tags,故合一为"语境匹配"
+//   3. tag 加分 —— tags 命中 → 轻加分(决策:tag 仅加分项,不主依赖)
+//   外加 title 命中小补;recall 这类按词查的场景额外查正文(body=true)。
+// ──────────────────────────────────────────────────────────────
+
+const BASE_BY_PRIORITY = { high: 3, medium: 2, low: 1 };
+
+// 给一条记录按一组语境关键词打分。
+// signals:小写关键词数组(来自 recall 的 query 或 hook 探测的项目语言)。
+// 返回 { score, matched };matched=命中了几处,recall 用它过滤"必须沾边"。
+export function scoreRecord(rec, signals = [], { body = false } = {}) {
+  let score = BASE_BY_PRIORITY[rec.priority] ?? 2;
+  let matched = 0;
+  const ctx = rec.context.map((s) => String(s).toLowerCase());
+  const tags = rec.tags.map((s) => String(s).toLowerCase());
+  const title = rec.title.toLowerCase();
+  const bodyText = body ? rec.body.toLowerCase() : '';
+  for (const sig of signals) {
+    if (!sig) continue;
+    if (ctx.includes(sig)) { score += 4; matched++; }
+    if (tags.includes(sig)) { score += 2; matched++; }
+    if (title.includes(sig)) { score += 1; matched++; }
+    if (body && bodyText.includes(sig)) { score += 1; matched++; }
+  }
+  return { score, matched };
+}
+
+// 从工作目录探测"当前语境"关键词:这项目用啥语言/框架。
+// 给 hook 自动注入用——会话开始时还不知道在编辑哪个文件,只能用项目整体语言近似。
+// (更细的"具体文件类型"要等编辑事件 hook,阶段一先到项目级。)
+const SIGNAL_BY_MARKER = {
+  'pyproject.toml': ['python'],
+  'requirements.txt': ['python'],
+  Pipfile: ['python'],
+  'Cargo.toml': ['rust'],
+  'go.mod': ['go'],
+  'pom.xml': ['java'],
+  'tsconfig.json': ['typescript'],
+};
+
+export function detectSignals(cwd) {
+  if (!cwd) return [];
+  const out = new Set();
+  try {
+    const entries = readdirSync(cwd);
+    for (const [marker, sigs] of Object.entries(SIGNAL_BY_MARKER)) {
+      if (entries.includes(marker)) sigs.forEach((s) => out.add(s));
+    }
+    if (entries.some((f) => f.endsWith('.py'))) out.add('python');
+    if (entries.includes('package.json')) {
+      out.add('node');
+      out.add('javascript');
+      try {
+        const pkg = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8'));
+        const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+        const names = Object.keys(deps);
+        for (const f of ['react', 'vue', 'next', 'svelte', 'express', 'tauri', 'typescript']) {
+          if (names.some((d) => d.includes(f))) out.add(f);
+        }
+      } catch {
+        // package.json 坏了不影响其它信号
+      }
+    }
+  } catch {
+    // 目录读不了就当没有语境信号
+  }
+  return [...out];
+}
+
+// recall:按关键词"按需查"。要求至少沾边(matched>0)才返回,按得分高到低排。
 export function recall(query, { agent = 'claude-code', limit = 10 } = {}) {
   const terms = String(query || '')
     .toLowerCase()
@@ -92,39 +167,25 @@ export function recall(query, { agent = 'claude-code', limit = 10 } = {}) {
     .filter(Boolean);
   if (terms.length === 0) return [];
 
-  const scored = [];
+  const hits = [];
   for (const r of loadAll()) {
     if (!appliesToAgent(r, agent)) continue;
-    const title = r.title.toLowerCase();
-    const tags = r.tags.join(' ').toLowerCase();
-    const ctx = r.context.join(' ').toLowerCase();
-    const body = r.body.toLowerCase();
-    let score = 0;
-    for (const t of terms) {
-      if (title.includes(t)) score += 5;
-      if (tags.includes(t)) score += 3;
-      if (ctx.includes(t)) score += 2;
-      if (body.includes(t)) score += 1;
-    }
-    if (score > 0) scored.push({ ...r, score });
+    const { score, matched } = scoreRecord(r, terms, { body: true });
+    if (matched > 0) hits.push({ ...r, score });
   }
-  scored.sort(
-    (a, b) =>
-      b.score - a.score ||
-      PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] ||
-      a.title.localeCompare(b.title)
-  );
-  return scored.slice(0, limit);
+  hits.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+  return hits.slice(0, limit);
 }
 
-// 会话开头主动注入接口:按优先级取前 limit 条(默认 5,呼应"≤5 条保底")。
-// 笨排序占位——1-③ 把这里换成按当前任务的三层叠加打分。
-export function getActive({ agent = 'claude-code', limit = 5 } = {}) {
-  const records = loadAll().filter((r) => appliesToAgent(r, agent));
-  records.sort(
-    (a, b) =>
-      PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] ||
-      a.title.localeCompare(b.title)
-  );
-  return records.slice(0, limit);
+// 会话开头主动注入接口:三层打分取前 limit 条(默认 5,呼应"≤5 条保底")。
+// signals = 当前语境关键词(hook 从 cwd 探测)。
+// 不传 signals 时只剩 priority 保底分 = 退化成笨排序,向后兼容。
+// 注:所有记录都参与(没命中也靠 priority 保底),这跟 recall 的"必须沾边"不同——
+// 注入要保证总有 ≤5 条垫底,查询则只回相关的。
+export function getActive({ agent = 'claude-code', limit = 5, signals = [] } = {}) {
+  const scored = loadAll()
+    .filter((r) => appliesToAgent(r, agent))
+    .map((r) => ({ ...r, score: scoreRecord(r, signals).score }));
+  scored.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+  return scored.slice(0, limit);
 }
