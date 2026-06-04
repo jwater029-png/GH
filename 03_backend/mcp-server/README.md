@@ -45,6 +45,40 @@ claude mcp add starnet -- node "C:/Users/ghqah/projects/GH/03_backend/mcp-server
 
 接好后在 Claude Code 里用 `/mcp` 能看到 `starnet`,工具名 `recall`、`get_active_preferences`。
 
+## 自动加载(无需主动调)—— 1-③ 主动注入那一半
+
+光有 `recall` 是"插件式":AI 要主动调才生效。要做到**会话一开 AI 就自带你的偏好**,
+靠的不是 MCP(它天生被动),而是 **Claude Code 的 SessionStart hook**:
+
+- 脚本:`session-start-hook.js` —— 每次开会话自动跑,调 `getActive` 取当前生效的前 ≤5 条,
+  按 hook 契约输出 `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"..."}}`,
+  内容被注入到会话上下文最前面。异常一律静默 exit 0,绝不卡会话启动。
+- 挂载位置:**user-scope** `%USERPROFILE%\.claude\settings.json` 的 `hooks.SessionStart`,
+  挂 `startup` + `clear` 两个时机(全新上下文场景;`resume`/`compact` 上下文已有历史不重复注入)。
+
+settings.json 片段(留档,该文件不在本仓库):
+
+```json
+"hooks": {
+  "SessionStart": [
+    { "matcher": "startup", "hooks": [
+      { "type": "command",
+        "command": "node C:/Users/ghqah/projects/GH/03_backend/mcp-server/session-start-hook.js",
+        "timeout": 15, "statusMessage": "星网:加载你的偏好…" } ] },
+    { "matcher": "clear", "hooks": [
+      { "type": "command",
+        "command": "node C:/Users/ghqah/projects/GH/03_backend/mcp-server/session-start-hook.js",
+        "timeout": 15, "statusMessage": "星网:加载你的偏好…" } ] }
+  ]
+}
+```
+
+> **注:** 这只解决了 **Claude Code 一家**的自动加载。Cursor(`.cursor/rules`)、Codex(`AGENTS.md`)
+> 等其它 agent 的自动加载靠 **adapters 引擎**(把偏好翻译成各家原生格式自动写入),是阶段二的活。
+>
+> "选哪几条注入"当前用 `getActive` 的 priority 笨排序;三层叠加智能打分(1-③ 另一半)做好后,
+> 升级 `getActive` 即可,hook 不用改。
+
 ## 数据从哪来
 
 读 `~/.starnet/personal/` 下的 `preferences/`、`habits/`、`decisions/`(diary/workflows 阶段二三再说)。
