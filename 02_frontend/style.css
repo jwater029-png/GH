@@ -37,6 +37,30 @@ body {
 .brand { font-size: 16px; font-weight: 600; }
 .brand .sub { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
 
+/* 视图切换标签(节点图 / 编辑器) */
+.views { display: flex; gap: 4px; background: var(--bg); padding: 3px; border-radius: var(--radius); }
+.tab {
+  background: transparent; border: none; color: var(--muted);
+  padding: 6px 16px; font-size: 13px; border-radius: 6px;
+}
+.tab:hover { color: var(--text); }
+.tab.active { background: var(--panel); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+
+/* 视图通用:占满剩余高度 */
+.view { flex: 1; overflow: hidden; }
+
+/* 节点图视图:深色画布,营造"打开自己大脑"的空间感 */
+#graph-view { position: relative; }
+#graph { width: 100%; height: 100%; background: #14171c; }
+.graph-empty {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  color: #8a8f98; font-size: 14px; text-align: center;
+}
+.graph-hint {
+  position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+  color: #5a5f68; font-size: 12px; pointer-events: none; user-select: none;
+}
+
 /* 布局:左列表 + 右编辑 */
 .layout { flex: 1; display: flex; overflow: hidden; }
 

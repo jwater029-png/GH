@@ -213,8 +213,42 @@ function showEnv() {
   el.status.textContent = '运行环境:' + where;
 }
 
+// ---- 视图切换(节点图 ⇄ 编辑器)----
+// 节点图是灵魂层的"脸",默认打开它;编辑器是写偏好的地方。
+const views = {
+  graph: document.getElementById('graph-view'),
+  editor: document.getElementById('editor-view'),
+};
+const tabs = {
+  graph: document.getElementById('view-graph'),
+  editor: document.getElementById('view-editor'),
+};
+
+function showView(name) {
+  for (const key of Object.keys(views)) {
+    const on = key === name;
+    views[key].classList.toggle('hidden', !on);
+    tabs[key].classList.toggle('active', on);
+  }
+  // 切到节点图时让它按最新数据重画(可能刚在编辑器里改过)
+  if (name === 'graph' && window.StarnetGraph) {
+    window.StarnetGraph.render().catch((err) => console.error('节点图渲染失败', err));
+  }
+}
+
+tabs.graph.addEventListener('click', () => showView('graph'));
+tabs.editor.addEventListener('click', () => showView('editor'));
+
+// 暴露给 graph.js:点节点 → 切到编辑器并打开那一条
+window.StarnetApp = {
+  openItemFromGraph(id) {
+    showView('editor');
+    openItem(id).catch((err) => flashError('打开失败', err));
+  },
+};
+
 // ---- 绑定事件 + 启动 ----
-el.newBtn.addEventListener('click', newItem);
+el.newBtn.addEventListener('click', () => { showView('editor'); newItem(); });
 el.form.addEventListener('submit', save);
 el.deleteBtn.addEventListener('click', del);
 el.exportBtn.addEventListener('click', exportMd);
