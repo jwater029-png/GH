@@ -9,8 +9,5 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
-  },
-  "dependencies": {
-    "cytoscape": "^3.34.0"
   }
 }
