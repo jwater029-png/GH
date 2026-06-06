@@ -17,14 +17,14 @@
     'decision-style': [198, 192, 224], // 银紫
   };
   const FALLBACK_COLOR = [186, 194, 206];
-  const SILVER_PULSE = [224, 232, 244]; // 脉冲光点:冷银白
+  const EDGE_COLOR = [228, 236, 248]; // 神经纤维:冷银白发光
   const PRIORITY_R = { high: 9, medium: 6.5, low: 5 };
 
   function rgba(c, a) { return `rgba(${c[0]},${c[1]},${c[2]},${a})`; }
 
   // —— 画布状态 ——
   let canvas, ctx, dpr = 1, W = 0, H = 0;
-  let nodes = [], edges = [], pulses = [];
+  let nodes = [], edges = [];
   let stars = [], nebula = null;
   let raf = null, t0 = 0, time = 0;
   const view = { x: 0, y: 0, scale: 1 };
@@ -65,18 +65,22 @@
         let shared = 0;
         for (const tg of nodes[j].tags) if (tagsA.has(tg)) shared++;
         if (shared > 0) edges.push({
-          a: nodes[i].id, b: nodes[j].id, w: shared, nextPulse: Math.random() * 2,
-          // 神经元曲线波动:每条的摆幅/节奏/相位都不同(双谐波叠加 = 不机械、有自己的动态)
+          a: nodes[i].id, b: nodes[j].id, w: shared,
+          // 曲线空间摆动:每条的摆幅/节奏/相位都不同(双谐波叠加 = 不机械、有自己的动态)
           amp: 9 + Math.random() * 13,            // 主摆幅 9~22(每条不一样)
           freq: 0.00035 + Math.random() * 0.0005, // 主节奏
           phase: Math.random() * Math.PI * 2,
           amp2: 0.25 + Math.random() * 0.35,      // 次谐波占比
           freq2: 0.0007 + Math.random() * 0.0009, // 次谐波节奏
           dir: Math.random() < 0.5 ? 1 : -1,      // 朝哪边鼓
+          // 神经活动:亮度沿线流动(亮带)+ 整条呼吸,每条节奏不同
+          bspeed: (0.16 + Math.random() * 0.22) * (Math.random() < 0.5 ? 1 : -1), // 亮带流速/方向
+          boff: Math.random(),                    // 亮带初始位置
+          brFreq: 0.0006 + Math.random() * 0.0009, // 整条呼吸节奏
+          brPhase: Math.random() * Math.PI * 2,
         });
       }
     }
-    pulses = [];
     return byId;
   }
 
@@ -102,12 +106,6 @@
     const s = Math.sin(time * e.freq + e.phase) + e.amp2 * Math.sin(time * e.freq2 + e.phase * 1.7);
     const off = e.dir * e.amp * s;
     return { cx: mx + px * off, cy: my + py * off };
-  }
-
-  // 二次贝塞尔上 t 处的点
-  function bezier(a, c, b, t) {
-    const mt = 1 - t;
-    return { x: mt * mt * a.x + 2 * mt * t * c.cx + t * t * b.x, y: mt * mt * a.y + 2 * mt * t * c.cy + t * t * b.y };
   }
 
   // ====================================================================
@@ -224,37 +222,41 @@
     ctx.translate(W / 2 + view.x, H / 2 + view.y);
     ctx.scale(view.scale, view.scale);
 
-    // —— 边:神经元式曲线(每条按自己的节奏柔和摆动)——
-    ctx.lineWidth = 1.1 / view.scale;
+    // —— 边:发光神经纤维(整条柔和发光,一道亮带沿线自然流动)——
+    // 叠加发光,交叉处自然变亮(像神经元放电的样子)
+    ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
     for (const e of edges) {
       const a = nodeById[e.a], b = nodeById[e.b];
       if (!a || !b) continue;
       const c = edgeControl(e, a, b);
-      ctx.strokeStyle = `rgba(150,165,190,${0.06 + e.w * 0.025})`;
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.quadraticCurveTo(c.cx, c.cy, b.x, b.y);
-      ctx.stroke();
-    }
+      // 整条呼吸:亮度随时间柔和起伏(每条节奏不同)
+      const breathe = 0.5 + 0.5 * Math.sin(time * e.brFreq + e.brPhase);
+      const ambient = (0.05 + e.w * 0.02) * (0.6 + 0.4 * breathe); // 常亮的纤维底光
+      // 亮带头部位置(0~1 之间循环流动)
+      let head = (e.boff + time * 0.001 * e.bspeed) % 1;
+      if (head < 0) head += 1;
+      const bandW = 0.16; // 亮带宽度(占整条比例)→ 渐变自然过渡
 
-    // —— 脉冲:沿曲线流动的光点(神经元突触感)——
-    ctx.globalCompositeOperation = 'lighter';
-    for (const p of pulses) {
-      const a = nodeById[p.a], b = nodeById[p.b];
-      if (!a || !b || !p.e) continue;
-      const c = edgeControl(p.e, a, b);
-      const pt = bezier(a, c, b, p.t);
-      const fade = Math.sin(p.t * Math.PI); // 两端淡、中间亮
-      const col = SILVER_PULSE;
-      const pr = 2.4 / view.scale;
-      const g = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, pr * 4);
-      g.addColorStop(0, rgba(col, 0.95 * fade));
-      g.addColorStop(1, rgba(col, 0));
-      ctx.fillStyle = g;
+      // 先铺一层宽的柔光底(纤维的光晕)
+      ctx.lineWidth = 3.4 / view.scale;
+      ctx.strokeStyle = rgba(EDGE_COLOR, ambient * 0.55);
       ctx.beginPath();
-      ctx.arc(pt.x, pt.y, pr * 4, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.moveTo(a.x, a.y); ctx.quadraticCurveTo(c.cx, c.cy, b.x, b.y); ctx.stroke();
+
+      // 细核:沿整条线做线性渐变,一道平滑亮带扫过(连续、无颗粒、自然过渡)
+      const peak = Math.min(1, ambient + 0.55 + 0.3 * breathe);
+      const lg = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
+      lg.addColorStop(0, rgba(EDGE_COLOR, ambient));
+      const lo = head - bandW, hi = head + bandW;
+      if (lo > 0) lg.addColorStop(lo, rgba(EDGE_COLOR, ambient));
+      lg.addColorStop(Math.max(0, Math.min(1, head)), rgba(EDGE_COLOR, peak));
+      if (hi < 1) lg.addColorStop(hi, rgba(EDGE_COLOR, ambient));
+      lg.addColorStop(1, rgba(EDGE_COLOR, ambient));
+      ctx.lineWidth = 1.3 / view.scale;
+      ctx.strokeStyle = lg;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y); ctx.quadraticCurveTo(c.cx, c.cy, b.x, b.y); ctx.stroke();
     }
 
     // —— 节点:光晕 + 实心核 ——
@@ -319,28 +321,13 @@
     view.y = -cy * view.scale;
   }
 
-  // 脉冲生成 + 推进
-  function stepPulses(dt) {
-    for (const e of edges) {
-      e.nextPulse -= dt;
-      if (e.nextPulse <= 0) {
-        pulses.push({ e: e, a: e.a, b: e.b, t: 0, speed: 0.4 + Math.random() * 0.3 });
-        e.nextPulse = 1.6 + Math.random() * 2.4;
-      }
-    }
-    for (const p of pulses) p.t += p.speed * dt;
-    pulses = pulses.filter((p) => p.t < 1);
-  }
-
   // ====================================================================
   // 主循环
   // ====================================================================
   function loop(ts) {
     if (!t0) t0 = ts;
-    const dt = Math.min(0.05, (ts - (time + t0)) / 1000); // 秒
     time = ts - t0;
     drift();
-    stepPulses(dt);
     draw();
     raf = requestAnimationFrame(loop);
   }
