@@ -10,13 +10,14 @@
   const host = document.getElementById('graph');
   const emptyHint = document.getElementById('graph-empty');
 
-  // —— 配色:黑底上的发光色(去饱和,电影感,不霓虹)——
+  // —— 配色:银灰冷调发光色(去饱和,电影感,不霓虹)——
   const TYPE_COLOR = {
-    preference: [255, 210, 122],     // 暖金
-    habit: [111, 227, 210],          // 冷青
-    'decision-style': [196, 168, 255], // 柔紫
+    preference: [208, 216, 228],       // 银灰(冷白)
+    habit: [168, 206, 212],            // 银青
+    'decision-style': [198, 192, 224], // 银紫
   };
-  const FALLBACK_COLOR = [159, 180, 200];
+  const FALLBACK_COLOR = [186, 194, 206];
+  const SILVER_PULSE = [224, 232, 244]; // 脉冲光点:冷银白
   const PRIORITY_R = { high: 9, medium: 6.5, low: 5 };
 
   function rgba(c, a) { return `rgba(${c[0]},${c[1]},${c[2]},${a})`; }
@@ -63,7 +64,16 @@
       for (let j = i + 1; j < nodes.length; j++) {
         let shared = 0;
         for (const tg of nodes[j].tags) if (tagsA.has(tg)) shared++;
-        if (shared > 0) edges.push({ a: nodes[i].id, b: nodes[j].id, w: shared, nextPulse: Math.random() * 2 });
+        if (shared > 0) edges.push({
+          a: nodes[i].id, b: nodes[j].id, w: shared, nextPulse: Math.random() * 2,
+          // 神经元曲线波动:每条的摆幅/节奏/相位都不同(双谐波叠加 = 不机械、有自己的动态)
+          amp: 9 + Math.random() * 13,            // 主摆幅 9~22(每条不一样)
+          freq: 0.00035 + Math.random() * 0.0005, // 主节奏
+          phase: Math.random() * Math.PI * 2,
+          amp2: 0.25 + Math.random() * 0.35,      // 次谐波占比
+          freq2: 0.0007 + Math.random() * 0.0009, // 次谐波节奏
+          dir: Math.random() < 0.5 ? 1 : -1,      // 朝哪边鼓
+        });
       }
     }
     pulses = [];
@@ -83,6 +93,23 @@
     }
   }
 
+  // 算一条边当前的曲线控制点(垂直方向按双谐波正弦摆动 → 神经元式有机波动)
+  function edgeControl(e, a, b) {
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const px = -dy / len, py = dx / len; // 垂直单位向量
+    const s = Math.sin(time * e.freq + e.phase) + e.amp2 * Math.sin(time * e.freq2 + e.phase * 1.7);
+    const off = e.dir * e.amp * s;
+    return { cx: mx + px * off, cy: my + py * off };
+  }
+
+  // 二次贝塞尔上 t 处的点
+  function bezier(a, c, b, t) {
+    const mt = 1 - t;
+    return { x: mt * mt * a.x + 2 * mt * t * c.cx + t * t * b.x, y: mt * mt * a.y + 2 * mt * t * c.cy + t * t * b.y };
+  }
+
   // ====================================================================
   // 星云 + 星点:星云预渲染到离屏画布(便宜),星点实时闪烁
   // ====================================================================
@@ -90,38 +117,76 @@
     const off = document.createElement('canvas');
     off.width = W; off.height = H;
     const c = off.getContext('2d');
-    c.fillStyle = '#05070a';
+    const big = Math.max(W, H);
+
+    // 深空底:中心略亮、边缘更暗(纵深感)
+    const base = c.createRadialGradient(W * 0.5, H * 0.42, 0, W * 0.5, H * 0.42, big * 0.78);
+    base.addColorStop(0, '#0a0e15');
+    base.addColorStop(0.55, '#070a11');
+    base.addColorStop(1, '#03040a');
+    c.fillStyle = base;
     c.fillRect(0, 0, W, H);
-    // 几团去饱和的星云:暖金 + 冷青 + 一抹紫
+
+    // 冷调星云云团(去饱和、低对比、不规则叠加;以冷蓝青紫为主,远处一抹极淡暖余烬)
     const blobs = [
-      { x: W * 0.78, y: H * 0.62, r: Math.max(W, H) * 0.55, col: [120, 86, 50] },   // 暖金(右下,呼应黑洞吸积盘)
-      { x: W * 0.18, y: H * 0.28, r: Math.max(W, H) * 0.45, col: [30, 64, 72] },    // 冷青(左上)
-      { x: W * 0.55, y: H * 0.15, r: Math.max(W, H) * 0.35, col: [50, 40, 70] },    // 紫(顶部淡淡)
-      { x: W * 0.40, y: H * 0.85, r: Math.max(W, H) * 0.30, col: [70, 52, 36] },    // 暖(底部)
+      { x: W * 0.74, y: H * 0.70, r: big * 0.52, col: [36, 54, 86] },  // 冷蓝(右下深处)
+      { x: W * 0.20, y: H * 0.30, r: big * 0.44, col: [22, 56, 62] },  // 暗青(左上)
+      { x: W * 0.52, y: H * 0.12, r: big * 0.36, col: [44, 38, 70] },  // 暗紫(顶)
+      { x: W * 0.36, y: H * 0.86, r: big * 0.34, col: [26, 42, 70] },  // 冷蓝(底)
+      { x: W * 0.88, y: H * 0.22, r: big * 0.26, col: [48, 40, 30] },  // 极淡暖余烬(远角)
     ];
     c.globalCompositeOperation = 'lighter';
     for (const b of blobs) {
       const g = c.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
-      g.addColorStop(0, rgba(b.col, 0.28));
-      g.addColorStop(0.4, rgba(b.col, 0.12));
+      g.addColorStop(0, rgba(b.col, 0.20));
+      g.addColorStop(0.45, rgba(b.col, 0.07));
       g.addColorStop(1, rgba(b.col, 0));
       c.fillStyle = g;
       c.fillRect(0, 0, W, H);
     }
     c.globalCompositeOperation = 'source-over';
+
+    // 胶片颗粒:细噪点压掉"廉价渐变"的塑料感(半分辨率噪声放大,自带柔化)
+    const nw = Math.max(2, Math.ceil(W / 2)), nh = Math.max(2, Math.ceil(H / 2));
+    const nc = document.createElement('canvas'); nc.width = nw; nc.height = nh;
+    const nctx = nc.getContext('2d');
+    const img = nctx.createImageData(nw, nh);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const v = Math.random() * 255;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+      img.data[i + 3] = Math.random() * 14; // 极低 alpha
+    }
+    nctx.putImageData(img, 0, 0);
+    c.globalAlpha = 0.6;
+    c.drawImage(nc, 0, 0, W, H);
+    c.globalAlpha = 1;
+
+    // 暗角:聚焦中心、压住四边廉价感
+    const vig = c.createRadialGradient(W * 0.5, H * 0.45, big * 0.28, W * 0.5, H * 0.45, big * 0.72);
+    vig.addColorStop(0, 'rgba(0,0,0,0)');
+    vig.addColorStop(1, 'rgba(0,0,0,0.55)');
+    c.fillStyle = vig;
+    c.fillRect(0, 0, W, H);
+
     nebula = off;
   }
 
   function makeStars() {
     stars = [];
-    const count = Math.round((W * H) / 5200);
+    const count = Math.round((W * H) / 6000);
+    // 星星色温:多数冷白,少量偏蓝、偏暖,个别更亮的"主星"
+    const tints = [[255, 255, 255], [210, 224, 255], [255, 244, 224]];
     for (let i = 0; i < count; i++) {
+      const bright = Math.random() < 0.06; // 6% 主星更大更亮
       stars.push({
         x: Math.random() * W,
         y: Math.random() * H,
-        s: Math.random() * 1.3 + 0.2,
-        base: Math.random() * 0.5 + 0.15,
-        tw: Math.random() * Math.PI * 2, // 闪烁相位
+        s: bright ? Math.random() * 1.2 + 1.4 : Math.random() * 1.1 + 0.2,
+        base: bright ? Math.random() * 0.3 + 0.55 : Math.random() * 0.4 + 0.1,
+        tw: Math.random() * Math.PI * 2,
+        twSpeed: 0.0012 + Math.random() * 0.0016,
+        col: tints[Math.random() < 0.7 ? 0 : (Math.random() < 0.5 ? 1 : 2)],
+        bright,
       });
     }
   }
@@ -132,17 +197,24 @@
   function draw() {
     // 背景星云(轻微呼吸位移,制造深空漂移)
     const drift = 6;
-    ctx.fillStyle = '#05070a';
+    ctx.fillStyle = '#03040a';
     ctx.fillRect(0, 0, W, H);
     if (nebula) {
       ctx.globalAlpha = 1;
       ctx.drawImage(nebula, Math.sin(time * 0.00004) * drift, Math.cos(time * 0.00003) * drift);
     }
-    // 星点闪烁
+    // 星点闪烁(冷白/偏蓝/偏暖,主星更亮带微光晕)
     for (const st of stars) {
-      const a = st.base + Math.sin(time * 0.002 + st.tw) * 0.12;
+      const a = Math.max(0, st.base + Math.sin(time * st.twSpeed + st.tw) * 0.14);
+      if (st.bright) {
+        const g = ctx.createRadialGradient(st.x, st.y, 0, st.x, st.y, st.s * 4);
+        g.addColorStop(0, `rgba(${st.col[0]},${st.col[1]},${st.col[2]},${a * 0.5})`);
+        g.addColorStop(1, `rgba(${st.col[0]},${st.col[1]},${st.col[2]},0)`);
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(st.x, st.y, st.s * 4, 0, Math.PI * 2); ctx.fill();
+      }
       ctx.beginPath();
-      ctx.fillStyle = `rgba(255,255,255,${Math.max(0, a)})`;
+      ctx.fillStyle = `rgba(${st.col[0]},${st.col[1]},${st.col[2]},${a})`;
       ctx.arc(st.x, st.y, st.s, 0, Math.PI * 2);
       ctx.fill();
     }
@@ -152,34 +224,36 @@
     ctx.translate(W / 2 + view.x, H / 2 + view.y);
     ctx.scale(view.scale, view.scale);
 
-    // —— 边:极淡的连线 ——
-    ctx.lineWidth = 1 / view.scale;
+    // —— 边:神经元式曲线(每条按自己的节奏柔和摆动)——
+    ctx.lineWidth = 1.1 / view.scale;
+    ctx.lineCap = 'round';
     for (const e of edges) {
       const a = nodeById[e.a], b = nodeById[e.b];
       if (!a || !b) continue;
-      ctx.strokeStyle = `rgba(170,190,210,${0.05 + e.w * 0.02})`;
+      const c = edgeControl(e, a, b);
+      ctx.strokeStyle = `rgba(150,165,190,${0.06 + e.w * 0.025})`;
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
+      ctx.quadraticCurveTo(c.cx, c.cy, b.x, b.y);
       ctx.stroke();
     }
 
-    // —— 脉冲:沿边流动的光点(神经元突触感)——
+    // —— 脉冲:沿曲线流动的光点(神经元突触感)——
     ctx.globalCompositeOperation = 'lighter';
     for (const p of pulses) {
       const a = nodeById[p.a], b = nodeById[p.b];
-      if (!a || !b) continue;
-      const x = a.x + (b.x - a.x) * p.t;
-      const y = a.y + (b.y - a.y) * p.t;
+      if (!a || !b || !p.e) continue;
+      const c = edgeControl(p.e, a, b);
+      const pt = bezier(a, c, b, p.t);
       const fade = Math.sin(p.t * Math.PI); // 两端淡、中间亮
-      const col = a.color;
+      const col = SILVER_PULSE;
       const pr = 2.4 / view.scale;
-      const g = ctx.createRadialGradient(x, y, 0, x, y, pr * 4);
-      g.addColorStop(0, rgba(col, 0.9 * fade));
+      const g = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, pr * 4);
+      g.addColorStop(0, rgba(col, 0.95 * fade));
       g.addColorStop(1, rgba(col, 0));
       ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.arc(x, y, pr * 4, 0, Math.PI * 2);
+      ctx.arc(pt.x, pt.y, pr * 4, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -250,7 +324,7 @@
     for (const e of edges) {
       e.nextPulse -= dt;
       if (e.nextPulse <= 0) {
-        pulses.push({ a: e.a, b: e.b, t: 0, speed: 0.4 + Math.random() * 0.3 });
+        pulses.push({ e: e, a: e.a, b: e.b, t: 0, speed: 0.4 + Math.random() * 0.3 });
         e.nextPulse = 1.6 + Math.random() * 2.4;
       }
     }
